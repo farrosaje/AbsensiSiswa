@@ -1,0 +1,275 @@
+// Sketch untuk tampilan Serial Monitor yang interaktif
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SPI.h>
+#include <MFRC522.h>
+
+// Pin definitions
+#define SS_PIN  D2
+#define RST_PIN D1
+#define BUZZER_PIN D8
+
+MFRC522 mfrc522(SS_PIN, RST_PIN);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Database kartu yang diizinkan
+String kartu_izin[] = {
+  "A3 5B 1C 92",
+  "93 7A 4D B2",
+  "11 22 33 44",
+  "55 66 77 88",
+  "12 34 56 AB"
+};
+const int total_kartu_izin = sizeof(kartu_izin) / sizeof(kartu_izin[0]);
+
+// Log kartu yang ditolak (maksimal 20)
+String log_kartu_gagal[20];
+int indeks_gagal = 0;
+bool log_penuh = false;
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n=== SISTEM ABSENSI RFID ===");
+  Serial.println("Perintah yang tersedia:");
+  Serial.println("1. LOG      - Tampilkan log kartu gagal");
+  Serial.println("2. RESET    - Reset log kartu gagal");
+  Serial.println("3. LIST     - Tampilkan kartu yang diizinkan");
+  Serial.println("4. HELP     - Tampilkan menu bantuan");
+  Serial.println("5. ADD [UID]- Tambah kartu baru (contoh: ADD 11 22 33 44)");
+  Serial.println("============================\n");
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  Wire.begin(0, 2);
+  
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("Sistem Absensi");
+  lcd.setCursor(0,1);
+  lcd.print("Ready...");
+  
+  SPI.begin();
+  mfrc522.PCD_Init();
+  delay(1000);
+  
+  lcd.clear();
+  lcd.print("Tempel Kartu");
+  lcd.setCursor(0,1);
+  lcd.print(">>>");
+}
+
+void loop() {
+  // Handle serial commands
+  if (Serial.available()) {
+    handleSerialCommand();
+  }
+  
+  // Check for RFID cards
+  if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
+    processCard();
+  }
+}
+
+void processCard() {
+  String uid = getCardUID();
+  Serial.print("\n[RFID] Kartu terdeteksi: ");
+  Serial.println(uid);
+  
+  lcd.clear();
+  lcd.print("UID: ");
+  lcd.setCursor(0,1);
+  if (uid.length() > 16) {
+    lcd.print(uid.substring(0, 16));
+  } else {
+    lcd.print(uid);
+  }
+  delay(1000);
+  
+  if (isCardAllowed(uid)) {
+    grantAccess(uid);
+  } else {
+    denyAccess(uid);
+  }
+  
+  delay(2000);
+  lcd.clear();
+  lcd.print("Tempel Kartu");
+  lcd.setCursor(0,1);
+  lcd.print(">>>");
+}
+
+String getCardUID() {
+  String uid = "";
+  for (byte i = 0; i < mfrc522.uid.size; i++) {
+    if (mfrc522.uid.uidByte[i] < 0x10) uid += "0";
+    uid += String(mfrc522.uid.uidByte[i], HEX);
+    if (i < mfrc522.uid.size - 1) uid += " ";
+  }
+  uid.toUpperCase();
+  mfrc522.PICC_HaltA();
+  return uid;
+}
+
+bool isCardAllowed(String uid) {
+  for (int i = 0; i < total_kartu_izin; i++) {
+    if (uid == kartu_izin[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void grantAccess(String uid) {
+  Serial.println("[STATUS] Akses DITERIMA");
+  Serial.println("[WAKTU] " + getTimeStamp());
+  
+  lcd.clear();
+  lcd.print("Akses DITERIMA");
+  lcd.setCursor(0,1);
+  lcd.print("Selamat datang!");
+  
+  tone(BUZZER_PIN, 2000, 300);
+  delay(350);
+  noTone(BUZZER_PIN);
+}
+
+void denyAccess(String uid) {
+  Serial.println("[STATUS] Akses DITOLAK");
+  Serial.println("[WAKTU] " + getTimeStamp());
+  
+  // Add to failed log
+  addToFailedLog(uid);
+  
+  lcd.clear();
+  lcd.print("Akses DITOLAK!");
+  lcd.setCursor(0,1);
+  lcd.print("Kartu invalid");
+  
+  tone(BUZZER_PIN, 500, 800);
+  delay(850);
+  noTone(BUZZER_PIN);
+  
+  delay(1000);
+  
+  // Show failed count
+  lcd.clear();
+  lcd.print("Kartu ditolak:");
+  lcd.setCursor(0,1);
+  if (log_penuh) {
+    lcd.print("20/20 (FULL)");
+  } else {
+    lcd.print(String(indeks_gagal) + "/20");
+  }
+}
+
+void addToFailedLog(String uid) {
+  // Check if already in log
+  for (int i = 0; i < indeks_gagal; i++) {
+    if (log_kartu_gagal[i] == uid) {
+      return;
+    }
+  }
+  
+  log_kartu_gagal[indeks_gagal] = uid;
+  indeks_gagal++;
+  
+  if (indeks_gagal >= 20) {
+    indeks_gagal = 0;
+    log_penuh = true;
+  }
+}
+
+void handleSerialCommand() {
+  String command = Serial.readStringUntil('\n');
+  command.trim();
+  
+  if (command == "LOG") {
+    showFailedLog();
+  } else if (command == "RESET") {
+    resetFailedLog();
+  } else if (command == "LIST") {
+    showAllowedCards();
+  } else if (command == "HELP") {
+    showHelp();
+  } else if (command.startsWith("ADD ")) {
+    addNewCard(command.substring(4));
+  } else {
+    Serial.println("[ERROR] Perintah tidak dikenali. Ketik HELP untuk bantuan.");
+  }
+}
+
+void showFailedLog() {
+  Serial.println("\n=== LOG KARTU GAGAL ===");
+  
+  if (indeks_gagal == 0 && !log_penuh) {
+    Serial.println("Tidak ada kartu yang gagal.");
+  } else {
+    int total = log_penuh ? 20 : indeks_gagal;
+    Serial.println("Total: " + String(total) + " kartu\n");
+    
+    for (int i = 0; i < total; i++) {
+      Serial.print(String(i+1).length() == 1 ? "0" : "");
+      Serial.print(i+1);
+      Serial.print(". ");
+      Serial.println(log_kartu_gagal[i]);
+    }
+  }
+  Serial.println("=======================\n");
+}
+
+void resetFailedLog() {
+  for (int i = 0; i < 20; i++) {
+    log_kartu_gagal[i] = "";
+  }
+  indeks_gagal = 0;
+  log_penuh = false;
+  
+  Serial.println("[SUCCESS] Log kartu gagal telah direset.");
+  lcd.clear();
+  lcd.print("Log direset");
+  lcd.setCursor(0,1);
+  lcd.print("Success!");
+  delay(1500);
+}
+
+void showAllowedCards() {
+  Serial.println("\n=== KARTU YANG DIIZINKAN ===");
+  Serial.println("Total: " + String(total_kartu_izin) + " kartu\n");
+  
+  for (int i = 0; i < total_kartu_izin; i++) {
+    Serial.print(String(i+1).length() == 1 ? "0" : "");
+    Serial.print(i+1);
+    Serial.print(". ");
+    Serial.println(kartu_izin[i]);
+  }
+  Serial.println("============================\n");
+}
+
+void showHelp() {
+  Serial.println("\n=== MENU BANTUAN ===");
+  Serial.println("1. LOG      - Tampilkan log kartu gagal");
+  Serial.println("2. RESET    - Reset log kartu gagal");
+  Serial.println("3. LIST     - Tampilkan kartu yang diizinkan");
+  Serial.println("4. HELP     - Tampilkan menu bantuan");
+  Serial.println("5. ADD [UID]- Tambah kartu baru");
+  Serial.println("   Contoh: ADD 11 22 33 44");
+  Serial.println("============================\n");
+}
+
+void addNewCard(String uid) {
+  uid.trim();
+  uid.toUpperCase();
+  
+  Serial.println("[INFO] Menambah kartu: " + uid);
+  
+  // In a real implementation, you would save this to EEPROM
+  // For this example, we'll just acknowledge
+  Serial.println("[SUCCESS] Kartu berhasil ditambahkan (simulasi)");
+  Serial.println("[NOTE] Untuk penyimpanan permanen, gunakan EEPROM");
+}
+
+String getTimeStamp() {
+  // Simulasi timestamp
+  // Dalam implementasi nyata, gunakan RTC
+  return "2024-01-15 14:30:00";
+}
