@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Absensi RFID - 1 Kartu untuk Semua</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <i class="fas fa-id-card"></i>
+                <div>
+                    <h1>Sistem Absensi RFID</h1>
+                    <p>1 Kartu untuk Semua Siswa</p>
+                </div>
+            </div>
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Offline</span>
+                <span class="auto-refresh-indicator" id="autoRefreshIndicator" style="display: none">
+                    <span class="dot"></span>
+                    Auto-refresh: <span id="refreshTimer">30</span>s
+                </span>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Connection Panel -->
+            <div class="card connection-panel">
+                <h2 class="card-title">
+                    <i class="fas fa-microchip"></i> Koneksi Arduino
+                    <button class="refresh-btn" onclick="refreshAllData()" title="Refresh semua data"><i class="fas fa-sync-alt"></i> Refresh All</button>
+                </h2>
+
+                <div class="com-selector">
+                    <select id="baudRateSelect">
+                        <option value="9600">9600 baud</option>
+                        <option value="115200" selected>115200 baud</option>
+                        <option value="57600">57600 baud</option>
+                        <option value="38400">38400 baud</option>
+                    </select>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="connectArduino()"><i class="fas fa-plug"></i> Hubungkan Arduino</button>
+                    <button class="btn btn-success" onclick="showAddStudentModal()"><i class="fas fa-user-plus"></i> Tambah Siswa</button>
+                    <button class="btn btn-warning" onclick="showSetMasterModal()"><i class="fas fa-id-card"></i> Set Kartu Master</button>
+                    <button class="btn btn-danger" onclick="disconnectArduino()"><i class="fas fa-power-off"></i> Putuskan</button>
+                </div>
+
+                <div class="scan-animation" id="scanArea">
+                    <div class="scan-icon">
+                        <i class="fas fa-rss"></i>
+                    </div>
+                    <div class="scan-text" id="scanText">Pilih siswa aktif, lalu tempelkan kartu untuk absensi</div>
+                </div>
+
+                <!-- Statistik Hari Ini -->
+                <div class="today-stats">
+                    <div class="today-stat">
+                        <div class="today-stat-number hadir-count" id="todayPresent">0</div>
+                        <div class="today-stat-label">Hadir Hari Ini</div>
+                    </div>
+                    <div class="today-stat">
+                        <div class="today-stat-number tidak-hadir-count" id="todayAbsent">0</div>
+                        <div class="today-stat-label">Tidak Hadir</div>
+                    </div>
+                    <div class="today-stat">
+                        <div class="today-stat-number" style="color: #f59e0b" id="todayIzin">0</div>
+                        <div class="today-stat-label">Izin</div>
+                    </div>
+                </div>
+
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalStudents">0</div>
+                        <div class="stat-label">
+                            Total Siswa
+                            <button class="refresh-btn" onclick="refreshStudents()" title="Refresh data siswa">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalAttendance">0</div>
+                        <div class="stat-label">
+                            Total Absensi
+                            <button class="refresh-btn" onclick="refreshAttendance()" title="Refresh data absensi">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="todayAttendance">0</div>
+                        <div class="stat-label">Total Hari Ini</div>
+                    </div>
+                </div>
+
+                <!-- Tombol Absensi Cepat -->
+                <div class="quick-attendance">
+                    <h4 style="margin-bottom: 10px; color: white"><i class="fas fa-bolt"></i> Absensi Cepat</h4>
+                    <div class="quick-attendance-buttons">
+                        <button class="attendance-status-btn status-hadir" onclick="markAttendanceManual('HADIR')"><i class="fas fa-check-circle"></i> Tandai Hadir</button>
+                        <button class="attendance-status-btn status-tidak-hadir" onclick="markAttendanceManual('TIDAK HADIR')"><i class="fas fa-times-circle"></i> Tandai Tidak Hadir</button>
+                        <button class="attendance-status-btn status-izin" onclick="markAttendanceManual('IZIN')"><i class="fas fa-user-clock"></i> Tandai Izin</button>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 0.9rem; opacity: 0.8"><i class="fas fa-info-circle"></i> Klik tombol untuk mencatat absensi siswa aktif</div>
+                </div>
+
+                <!-- Info Absensi Terakhir -->
+                <div class="last-attendance-info" id="lastAttendanceInfo" style="display: none">
+                    <h4 style="margin-bottom: 10px; color: white"><i class="fas fa-history"></i> Absensi Terakhir</h4>
+                    <div id="lastAttendanceDetails">
+                        <!-- Info akan ditampilkan di sini -->
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn" onclick="sendCommand('HELP')"><i class="fas fa-question-circle"></i> Help</button>
+                    <button class="btn" onclick="sendCommand('STATUS')"><i class="fas fa-info-circle"></i> Status</button>
+                    <button class="btn" onclick="refreshStudentListFromArduino()"><i class="fas fa-list"></i> Refresh Siswa</button>
+                    <button class="btn" onclick="sendCommand('GET_LOG')"><i class="fas fa-history"></i> Get Log</button>
+                </div>
+
+                <!-- Auto-refresh controls -->
+                <div class="auto-refresh-controls">
+                    <h4><i class="fas fa-clock"></i> Auto-refresh</h4>
+                    <div class="auto-refresh-input">
+                        <select id="autoRefreshInterval">
+                            <option value="0">Nonaktif</option>
+                            <option value="10000">10 detik</option>
+                            <option value="30000" selected>30 detik</option>
+                            <option value="60000">1 menit</option>
+                            <option value="300000">5 menit</option>
+                        </select>
+                        <button class="btn btn-success" onclick="toggleAutoRefresh()" id="autoRefreshBtn"><i class="fas fa-play"></i> Aktifkan</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Master Card Info -->
+            <div class="card master-card-info">
+                <h2 class="card-title">
+                    <i class="fas fa-key"></i> Kartu Master
+                    <button class="refresh-btn" onclick="refreshMasterCard()" title="Refresh status kartu master">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </h2>
+                <p>1 Kartu RFID untuk semua siswa absensi</p>
+
+                <div class="uid-display" id="masterCardUID">Belum diatur</div>
+
+                <div class="btn-group">
+                    <button class="btn btn-warning" onclick="scanMasterCard()"><i class="fas fa-sync-alt"></i> Scan Kartu Baru</button>
+                    <button class="btn" onclick="setMasterManual()"><i class="fas fa-keyboard"></i> Set Manual</button>
+                    <button class="btn btn-danger" onclick="clearMasterCard()"><i class="fas fa-trash"></i> Reset Kartu</button>
+                </div>
+
+                <div class="last-scanned">
+                    <p><strong>UID Terakhir di-scan:</strong></p>
+                    <div class="uid-display" id="lastScannedUID">-</div>
+                </div>
+
+                <!-- Info Kartu -->
+                <div class="card-info">
+                    <p>
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Sistem 1 Kartu:</strong> Satu kartu ini digunakan oleh semua siswa untuk absensi. Pilih siswa aktif terlebih dahulu, lalu tempel kartu.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Active Student -->
+            <div class="card active-student">
+                <h2 class="card-title">
+                    <i class="fas fa-user-check"></i> Siswa Aktif (Siap Absen)
+                    <button class="refresh-btn" onclick="refreshActiveStudent()" title="Refresh siswa aktif"><i class="fas fa-sync-alt"></i> Refresh</button>
+                </h2>
+
+                <!-- Ringkasan Kehadiran -->
+                <div class="attendance-summary" id="attendanceSummary" style="display: none">
+                    <div class="summary-item">
+                        <div class="summary-number hadir-count" id="summaryHadir">0</div>
+                        <div class="summary-label">Hadir</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-number tidak-hadir-count" id="summaryTidakHadir">0</div>
+                        <div class="summary-label">Tidak Hadir</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-number" style="color: #f59e0b" id="summaryIzin">0</div>
+                        <div class="summary-label">Izin</div>
+                    </div>
+                </div>
+
+                <div class="student-info">
+                    <div class="student-details">
+                        <div class="student-name" id="activeStudentName">Belum ada siswa aktif</div>
+                        <div class="student-class" id="activeStudentClass">Pilih siswa terlebih dahulu untuk absensi</div>
+                        <div class="student-nis" id="activeStudentNIS"></div>
+                        <div class="student-attendance" id="activeStudentAttendance"></div>
+                        <div class="last-updated">
+                            <i class="fas fa-clock"></i> Terakhir diperbarui: <span id="lastUpdatedTime">-</span>
+                        </div>
+                        <!-- Status Kesiapan -->
+                        <div class="attendance-ready-status">
+                            <i class="fas fa-id-card"></i>
+                            <span id="attendanceReadyStatus"> Pilih siswa untuk mulai absensi </span>
+                        </div>
+                    </div>
+                    <div class="student-change">
+                        <button class="btn btn-success" onclick="showSelectStudentModal()"><i class="fas fa-exchange-alt"></i> Pilih Siswa</button>
+                        <button class="btn" onclick="refreshActiveStudent()"><i class="fas fa-sync"></i> Refresh</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Student List -->
+            <div class="card">
+                <h2 class="card-title">
+                    <i class="fas fa-users"></i> Daftar Siswa
+                    <button class="refresh-btn" onclick="refreshStudentList()" title="Refresh daftar siswa"><i class="fas fa-sync-alt"></i> Refresh</button>
+                    <span class="student-count">(<span id="studentCount">0</span> siswa)</span>
+                </h2>
+
+                <!-- Tombol aksi untuk siswa -->
+                <div class="btn-group student-actions">
+                    <button class="btn btn-success" onclick="showAddStudentModal()"><i class="fas fa-user-plus"></i> Tambah Siswa</button>
+                    <button class="btn" onclick="refreshStudentList()"><i class="fas fa-sync"></i> Refresh</button>
+                    <button class="btn btn-danger" onclick="clearAllStudents()"><i class="fas fa-trash-alt"></i> Hapus Semua</button>
+                </div>
+
+                <div class="student-list" id="studentList">
+                    <!-- Students will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Attendance Log -->
+            <div class="card attendance-log">
+                <h2 class="card-title">
+                    <i class="fas fa-history"></i> Riwayat Absensi
+                    <button class="refresh-btn" onclick="refreshAttendanceLog()" title="Refresh riwayat absensi"><i class="fas fa-sync-alt"></i> Refresh</button>
+                </h2>
+                <div class="btn-group">
+                    <button class="btn" onclick="clearAttendanceLog()"><i class="fas fa-trash"></i> Hapus Log</button>
+                    <button class="btn" onclick="exportData()"><i class="fas fa-download"></i> Export</button>
+                    <button class="btn" onclick="importData()"><i class="fas fa-upload"></i> Import</button>
+                </div>
+                <div class="table-container">
+                    <table id="attendanceTable">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Waktu</th>
+                                <th>Nama Siswa</th>
+                                <th>Kelas</th>
+                                <th>Status</th>
+                                <th>Kartu UID</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceTableBody">
+                            <!-- Attendance data will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Add/Edit Student Modal -->
+    <div class="modal" id="addStudentModal">
+        <div class="modal-content">
+            <h3 class="modal-title" id="addStudentModalTitle"><i class="fas fa-user-plus"></i> Tambah Siswa Baru</h3>
+
+            <div class="form-group">
+                <label for="newStudentName">Nama Lengkap</label>
+                <input type="text" id="newStudentName" class="form-control" placeholder="Masukkan nama siswa" />
+            </div>
+
+            <div class="form-group">
+                <label for="newStudentClass">Kelas</label>
+                <input type="text" id="newStudentClass" class="form-control" placeholder="Contoh: XII TKJ 1" />
+            </div>
+
+            <div class="form-group">
+                <label for="newStudentNIS">NIS/NISN</label>
+                <input type="text" id="newStudentNIS" class="form-control" placeholder="Nomor Induk Siswa" />
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn" onclick="closeAddStudentModal()">Batal</button>
+                <button class="btn btn-success" id="saveStudentBtn" onclick="addStudent()"><i class="fas fa-save"></i> Simpan Siswa</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Set Master Card Modal -->
+    <div class="modal" id="setMasterModal">
+        <div class="modal-content">
+            <h3 class="modal-title"><i class="fas fa-id-card"></i> Set Kartu Master</h3>
+
+            <div class="scan-animation">
+                <div class="scan-icon">
+                    <i class="fas fa-rss"></i>
+                </div>
+                <div class="scan-text">Tempelkan kartu RFID yang akan dijadikan kartu master</div>
+            </div>
+
+            <div class="form-group">
+                <label>UID yang terdeteksi:</label>
+                <div class="uid-display" id="detectedUID">-</div>
+            </div>
+
+            <div class="form-group">
+                <label>Atau masukkan UID manual:</label>
+                <input type="text" id="manualUID" class="form-control" placeholder="Contoh: 12 AB 34 CD" />
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn" onclick="closeSetMasterModal()">Batal</button>
+                <button class="btn btn-success" onclick="saveMasterCard()"><i class="fas fa-check"></i> Gunakan Kartu Ini</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Set Master Manual Modal -->
+    <div class="modal" id="setMasterManualModal">
+        <div class="modal-content">
+            <h3 class="modal-title"><i class="fas fa-keyboard"></i> Set Master Manual</h3>
+
+            <div class="form-group">
+                <label>Masukkan UID Kartu Master:</label>
+                <input type="text" id="manualMasterUID" class="form-control" placeholder="Contoh: 12 AB 34 CD" />
+            </div>
+
+            <div class="form-group">
+                <label>Keterangan:</label>
+                <p class="uid-format-info">
+                    Format UID: bisa dengan atau tanpa spasi<br />
+                    Contoh: "12 AB 34 CD" atau "12AB34CD"
+                </p>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn" onclick="closeSetMasterManualModal()">Batal</button>
+                <button class="btn btn-success" onclick="saveMasterCardManual()"><i class="fas fa-check"></i> Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Select Student Modal -->
+    <div class="modal" id="selectStudentModal">
+        <div class="modal-content">
+            <h3 class="modal-title"><i class="fas fa-user-check"></i> Pilih Siswa Aktif</h3>
+            <p class="modal-description">Pilih siswa yang akan melakukan absensi dengan kartu master:</p>
+
+            <div class="student-list" id="selectStudentList">
+                <!-- Students list for selection -->
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn" onclick="closeSelectStudentModal()">Batal</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal delete-confirm-modal" id="deleteConfirmModal">
+        <div class="modal-content">
+            <h3 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Konfirmasi Hapus</h3>
+
+            <div id="deleteConfirmContent">
+                <!-- Content will be inserted here -->
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn" onclick="closeDeleteConfirmModal()">Batal</button>
+                <button class="btn btn-danger" id="confirmDeleteBtn"><i class="fas fa-trash"></i> Ya, Hapus</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div class="notification" id="notification"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
